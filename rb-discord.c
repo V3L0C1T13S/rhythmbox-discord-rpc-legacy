@@ -166,6 +166,12 @@ rb_discord_plugin_init (RBDiscordPlugin *self)
 
 			break;
 		}
+		case DiscordRbStatus_Pthread_CreateFail: {
+			rb_debug("failed to create pthread!");
+			exit(1);
+
+			break;
+		}
 		default: break;
 	}
 }
