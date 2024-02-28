@@ -229,8 +229,8 @@ impl_deactivate	(PeasActivatable *bplugin)
 	RBDiscordPlugin *self = RB_DISCORD_PLUGIN (bplugin);
 
 	pthread_cancel(callback_thid);
-
 	cleanup_playing_entry(self);
+	self->app.core->destroy(self->app.core);
 }
 
 G_MODULE_EXPORT void
