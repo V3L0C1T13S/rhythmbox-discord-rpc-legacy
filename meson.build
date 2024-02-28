@@ -28,12 +28,6 @@ pluginsinc = include_directories('/usr/include/rhythmbox/plugins')
 libinc = include_directories('/usr/include/rhythmbox/lib')
 shellinc = include_directories('/usr/include/rhythmbox/shell')
 
-#discord_dep = declare_dependency(
-#   link_args : ['-L' + discord_lib_dir, '-l' + discord_lib],
-#     include_directories : include_directories(discord_header_dir))
-
-#discord_dep = dependency('discord-game-sdk',version: '>= 3.0.0',  required: true)
-
 fs.copyfile('./discord_game_sdk/lib/x86_64/discord_game_sdk.so', 'discord_game_sdk.so')
 
 po_dir = meson.project_source_root() / 'po'
@@ -49,7 +43,6 @@ msgfmt_plugin_cmd = [
   '--output=@OUTPUT@'
 ]
 
-glib_required = '2.66.0'
 cdata.set('GLIB_VERSION_MIN_REQUIRED', 'GLIB_VERSION_2_66')
 cdata.set('GLIB_VERSION_MAX_ALLOWED', 'GLIB_VERSION_2_66')
 

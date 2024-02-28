@@ -43,6 +43,8 @@
 #include "rb-shell.h"
 #include "rb-shell-player.h"
 
+#include "rb-discord-status.h"
+
 #include <pthread.h>
 #include <unistd.h>
 
@@ -50,7 +52,7 @@
 #include "discord_game_sdk/c/discord_game_sdk.h"
 #pragma pack(pop)
 
-#define RB_TYPE_DISCORD_PLUGIN		(rb_sample_plugin_get_type ())
+#define RB_TYPE_DISCORD_PLUGIN		(rb_discord_plugin_get_type ())
 #define RB_DISCORD_PLUGIN(o)			(G_TYPE_CHECK_INSTANCE_CAST ((o), RB_TYPE_DISCORD_PLUGIN, RBDiscordPlugin))
 #define RB_DISCORD_PLUGIN_CLASS(k)		(G_TYPE_CHECK_CLASS_CAST((k), RB_TYPE_DISCORD_PLUGIN, RBDiscordPluginClass))
 #define RB_IS_DISCORD_PLUGIN(o)		(G_TYPE_CHECK_INSTANCE_TYPE ((o), RB_TYPE_DISCORD_PLUGIN))
@@ -71,6 +73,7 @@ typedef struct
 	RhythmDB *db;
 	struct Application app;
 	RhythmDBEntry* playing_entry;
+	enum EDiscordResult last_discord_error;
 } RBDiscordPlugin;
 
 typedef struct
@@ -80,14 +83,22 @@ typedef struct
 
 pthread_t callback_thid;
 
+enum EDiscordResult get_last_discord_error(RBDiscordPlugin* self) {
+	return self->last_discord_error;
+}
+
+void set_last_discord_error(RBDiscordPlugin* self, enum EDiscordResult err) {
+	self->last_discord_error = err;
+}
+
 #define CLIENT_ID 1212075104486301696
 #define PLUGIN_NAME "Discord Status"
 
 G_MODULE_EXPORT void peas_register_types (PeasObjectModule *module);
 
-static void rb_sample_plugin_init (RBDiscordPlugin *plugin);
+static void rb_discord_plugin_init (RBDiscordPlugin *plugin);
 
-RB_DEFINE_PLUGIN(RB_TYPE_DISCORD_PLUGIN, RBDiscordPlugin, rb_sample_plugin,)
+RB_DEFINE_PLUGIN(RB_TYPE_DISCORD_PLUGIN, RBDiscordPlugin, rb_discord_plugin,)
 
 #define DISCORD_REQUIRE(x) assert(x == DiscordResult_Ok)
 
@@ -111,11 +122,7 @@ void* run_callbacks(void* plugin) {
 	pthread_exit(0);
 }
 
-static void
-rb_sample_plugin_init (RBDiscordPlugin *self)
-{
-	rb_debug ("RBDiscordPlugin initialising");
-
+EInitDiscordStatus init_discord(RBDiscordPlugin *self) {
     memset(&self->app, 0, sizeof(self->app));
 
 	struct IDiscordActivityEvents activities_events;
@@ -127,15 +134,40 @@ rb_sample_plugin_init (RBDiscordPlugin *self)
     params.event_data = &self->app;
 	params.activity_events = &activities_events;
 
-    DISCORD_REQUIRE(DiscordCreate(DISCORD_VERSION, &params, &self->app.core));
+    enum EDiscordResult result = DiscordCreate(DISCORD_VERSION, &params, &self->app.core);
+
+	if (result != DiscordResult_Ok) {
+		set_last_discord_error(self, result);
+		return DiscordRbStatus_Discord_Error;
+	}
 
 	self->app.application = self->app.core->get_application_manager(self->app.core);
 	self->app.activities = self->app.core->get_activity_manager(self->app.core);
 
 	if (pthread_create(&callback_thid, NULL, run_callbacks, self) != 0) {
     	perror("pthread_create() error");
-    	exit(1);
+    	return DiscordRbStatus_Pthread_CreateFail;
   	}
+
+	return DiscordRbStatus_Ok;
+}
+
+static void
+rb_discord_plugin_init (RBDiscordPlugin *self)
+{
+	rb_debug ("RBDiscordPlugin initialising");
+
+	EInitDiscordStatus status = init_discord(self);
+
+	switch (status) {
+		case DiscordRbStatus_Discord_Error: {
+			rb_debug("Failed to init discord instance: %i", get_last_discord_error(self));
+			exit(1);
+
+			break;
+		}
+		default: break;
+	}
 }
 
 void cleanup_playing_entry(RBDiscordPlugin *self) {
@@ -151,25 +183,20 @@ static void playing_entry_changed_cb(RBShellPlayer *player,
 	cleanup_playing_entry(self);
 
 	self->playing_entry = rhythmdb_entry_ref(entry);
-	const char* title = rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_TITLE), MAX_TITLE_LENGTH;
-	const char* artist = rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_ARTIST), MAX_DISCORD_STRING_LENGTH;
+	const char* title = rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_TITLE);
+	const char* artist = rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_ARTIST);
 	unsigned long duration = rhythmdb_entry_get_ulong(self->playing_entry, RHYTHMDB_PROP_DURATION);
-
-	rb_debug("entry changed! now listening to %s\n", title);
 
 	time_t current_time = time(NULL);
 	struct DiscordActivityTimestamps timestamps;
 	timestamps.start = current_time;
 	timestamps.end = current_time + duration;
 
-	struct DiscordActivityAssets assets;
-
 	struct DiscordActivity activity;
     memset(&activity, 0, sizeof(activity));
 	activity.application_id = CLIENT_ID;
 	activity.type = DiscordActivityType_Listening;
 	activity.timestamps = timestamps;
-	// activity.assets = assets;
 
 	sprintf(activity.name, "Rhythmbox");
 	sprintf(activity.details, title);
@@ -209,7 +236,7 @@ impl_deactivate	(PeasActivatable *bplugin)
 G_MODULE_EXPORT void
 peas_register_types (PeasObjectModule *module)
 {
-	rb_sample_plugin_register_type (G_TYPE_MODULE (module));
+	rb_discord_plugin_register_type (G_TYPE_MODULE (module));
 	peas_object_module_register_extension_type (module,
 						    PEAS_TYPE_ACTIVATABLE,
 						    RB_TYPE_DISCORD_PLUGIN);
