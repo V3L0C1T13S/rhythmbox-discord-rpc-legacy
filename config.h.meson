@@ -1,0 +1,36 @@
+/* config.h.in.  Generated from configure.ac by autoheader.  */
+/* Manually converted for use by Meson. */
+
+/* GLib version requirements */
+#mesondefine GLIB_VERSION_MIN_REQUIRED
+#mesondefine GLIB_VERSION_MAX_ALLOWED
+
+/* Define to the gettext package name. */
+#mesondefine GETTEXT_PACKAGE
+
+/* Define if you have GNU fwrite_unlocked */
+#mesondefine HAVE_GNU_FWRITE_UNLOCKED
+
+/* Use GUdev for hardware detection */
+#mesondefine HAVE_GUDEV
+
+/* define if Multimedia Keys are enabled */
+#mesondefine HAVE_MMKEYS
+
+/* Name of package */
+#mesondefine PACKAGE
+
+/* Define if libsecret support is enabled */
+#mesondefine WITH_LIBSECRET
+
+/* Define if you have cfmakeraw */
+#mesondefine HAVE_CFMAKERAW
+
+/* Define to the version of this package. */
+#define VERSION "@VERSION@"
+
+/* Define if prctl is available. */
+#mesondefine HAVE_PRCTL
+
+/* Define if pthread_getname_np is available. */
+#mesondefine HAVE_PTHREAD_GETNAME_NP

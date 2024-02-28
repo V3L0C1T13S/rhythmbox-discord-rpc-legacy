@@ -41,7 +41,6 @@
 #include "rb-plugin-macros.h"
 #include "rb-debug.h"
 #include "rb-shell.h"
-#include "rb-dialog.h"
 #include "rb-shell-player.h"
 
 #include <pthread.h>
