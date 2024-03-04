@@ -257,7 +257,7 @@ static void playing_entry_changed_cb(RBShellPlayer *player,
 static void playing_changed_cb(RBShellPlayer *player, gboolean playing,
                                RBDiscordPlugin *self) {
   if (self->playing_entry != NULL) {
-    guint *time;
+    guint *time = NULL;
     GError *error;
 
     rb_shell_player_get_playing_time(player, time, &error);
