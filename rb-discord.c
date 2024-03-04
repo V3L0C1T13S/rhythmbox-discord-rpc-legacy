@@ -39,6 +39,7 @@
 #include <time.h>
 
 #include "rb-debug.h"
+#include "rb-ext-db.h"
 #include "rb-plugin-macros.h"
 #include "rb-shell-player.h"
 #include "rb-shell.h"
@@ -75,8 +76,11 @@ typedef struct {
   PeasExtensionBase parent;
   RBShellPlayer *shell_player;
   RhythmDB *db;
+  RBExtDB *art_store;
+
   struct Application app;
   RhythmDBEntry *playing_entry;
+
   enum EDiscordResult last_discord_error;
 } RBDiscordPlugin;
 
@@ -196,7 +200,8 @@ void update_activity(RBDiscordPlugin *self, struct DiscordActivity *activity) {
 }
 
 struct DiscordActivity create_activity(const char *title, const char *artist,
-                                       unsigned long *duration, bool playing) {
+                                       unsigned long *duration, bool playing,
+                                       guint *playing_time) {
   struct DiscordActivity activity;
   struct DiscordActivityAssets assets;
 
@@ -205,6 +210,8 @@ struct DiscordActivity create_activity(const char *title, const char *artist,
   if (duration != NULL) {
     struct DiscordActivityTimestamps timestamps;
     time_t current_time = time(NULL);
+    if (playing_time != NULL)
+      current_time -= *playing_time;
 
     timestamps.start = current_time;
     timestamps.end = current_time + *duration;
@@ -242,7 +249,7 @@ static void playing_entry_changed_cb(RBShellPlayer *player,
       rhythmdb_entry_get_ulong(self->playing_entry, RHYTHMDB_PROP_DURATION);
 
   struct DiscordActivity activity =
-      create_activity(title, artist, &duration, true);
+      create_activity(title, artist, &duration, true, NULL);
 
   update_activity(self, &activity);
 }
@@ -250,6 +257,11 @@ static void playing_entry_changed_cb(RBShellPlayer *player,
 static void playing_changed_cb(RBShellPlayer *player, gboolean playing,
                                RBDiscordPlugin *self) {
   if (self->playing_entry != NULL) {
+    guint *time;
+    GError *error;
+
+    rb_shell_player_get_playing_time(player, time, &error);
+
     const char *title =
         rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_TITLE);
     const char *artist =
@@ -257,8 +269,8 @@ static void playing_changed_cb(RBShellPlayer *player, gboolean playing,
     unsigned long duration =
         rhythmdb_entry_get_ulong(self->playing_entry, RHYTHMDB_PROP_DURATION);
 
-    struct DiscordActivity activity =
-        create_activity(title, artist, (playing ? &duration : NULL), playing);
+    struct DiscordActivity activity = create_activity(
+        title, artist, (playing ? &duration : NULL), playing, time);
 
     update_activity(self, &activity);
   }
@@ -278,6 +290,8 @@ static void impl_activate(PeasActivatable *bplugin) {
   g_signal_connect_object(plugin->shell_player, "playing-changed",
                           G_CALLBACK(playing_changed_cb), plugin, 0);
 
+  plugin->art_store = rb_ext_db_new("album-art");
+
   g_object_unref(shell);
 }
 
@@ -289,6 +303,8 @@ static void impl_deactivate(PeasActivatable *bplugin) {
   if (self->app.core != NULL) {
     self->app.core->destroy(self->app.core);
   }
+  g_object_unref(self->art_store);
+  self->art_store = NULL;
 }
 
 G_MODULE_EXPORT void peas_register_types(PeasObjectModule *module) {

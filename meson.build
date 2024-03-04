@@ -27,6 +27,8 @@ rhythmboxinc = include_directories('/usr/include/rhythmbox')
 pluginsinc = include_directories('/usr/include/rhythmbox/plugins')
 libinc = include_directories('/usr/include/rhythmbox/lib')
 shellinc = include_directories('/usr/include/rhythmbox/shell')
+metadatainc = include_directories('/usr/include/rhythmbox/metadata')
+
 
 fs.copyfile('./discord_game_sdk/lib/x86_64/discord_game_sdk.so', 'discord_game_sdk.so')
 
@@ -57,7 +59,7 @@ configuration : cdata)
 shared_module('rhythmbox-discord',
   sample_sources,
   dependencies: [rhythmbox_dep, discord_dep, libpeas, libpeas_gtk],
-  include_directories: [inc_discord, libinc, pluginsinc, shellinc, rhythmboxinc],
+  include_directories: [inc_discord, libinc, pluginsinc, shellinc, rhythmboxinc, metadatainc],
   install_dir: sample_plugin_dir,
   install: true)
 
