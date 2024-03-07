@@ -5,8 +5,16 @@ fs = import('fs')
 sample_plugin_dir = 'rhythmbox-discord'
 
 sample_sources = [
-  'rb-discord.c'
+  'rb-discord.c',
 ]
+
+cashmap_sources = [
+  'include/c-hashmap/map.c'
+]
+
+chashmaplib = shared_library('chashmap',
+    cashmap_sources,
+    install: true)
 
 discord_lib = 'discord_game_sdk'
 discord_lib_dir = '/usr/lib'
@@ -59,6 +67,7 @@ configuration : cdata)
 shared_module('rhythmbox-discord',
   sample_sources,
   dependencies: [rhythmbox_dep, discord_dep, libpeas, libpeas_gtk],
+  link_with: [chashmaplib],
   include_directories: [inc_discord, libinc, pluginsinc, shellinc, rhythmboxinc, metadatainc],
   install_dir: sample_plugin_dir,
   install: true)

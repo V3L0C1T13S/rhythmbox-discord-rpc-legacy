@@ -44,7 +44,10 @@
 #include "rb-shell-player.h"
 #include "rb-shell.h"
 
+#include "file_uploader.h"
+#include "rb-discord-entry.h"
 #include "rb-discord-status.h"
+#include "rb-discord.h"
 
 #include <pthread.h>
 #include <unistd.h>
@@ -65,25 +68,6 @@
 #define RB_DISCORD_PLUGIN_GET_CLASS(o)                                         \
   (G_TYPE_INSTANCE_GET_CLASS((o), RB_TYPE_DISCORD_PLUGIN, RBDiscordPluginClass))
 
-struct Application {
-  struct IDiscordCore *core;
-  struct IDiscordUsers *users;
-  struct IDiscordApplicationManager *application;
-  struct IDiscordActivityManager *activities;
-};
-
-typedef struct {
-  PeasExtensionBase parent;
-  RBShellPlayer *shell_player;
-  RhythmDB *db;
-  RBExtDB *art_store;
-
-  struct Application app;
-  RhythmDBEntry *playing_entry;
-
-  enum EDiscordResult last_discord_error;
-} RBDiscordPlugin;
-
 typedef struct {
   PeasExtensionBaseClass parent_class;
 } RBDiscordPluginClass;
@@ -100,6 +84,8 @@ void set_last_discord_error(RBDiscordPlugin *self, enum EDiscordResult err) {
 
 #define CLIENT_ID 1212075104486301696
 #define PLUGIN_NAME "Discord Status"
+
+pthread_mutex_t lock;
 
 G_MODULE_EXPORT void peas_register_types(PeasObjectModule *module);
 
@@ -165,6 +151,7 @@ EInitDiscordStatus init_discord(RBDiscordPlugin *self) {
 static void rb_discord_plugin_init(RBDiscordPlugin *self) {
   rb_debug("RBDiscordPlugin initialising");
 
+  pthread_mutex_init(&lock, NULL);
   EInitDiscordStatus status = init_discord(self);
 
   switch (status) {
@@ -191,17 +178,26 @@ void cleanup_playing_entry(RBDiscordPlugin *self) {
     rhythmdb_entry_unref(self->playing_entry);
     self->playing_entry = NULL;
   }
+  if (self->art_path != NULL) {
+    g_free(self->art_path);
+    self->art_path = NULL;
+  }
 }
 
 void update_activity(RBDiscordPlugin *self, struct DiscordActivity *activity) {
+  pthread_mutex_lock(&lock);
+
   if (self->app.activities != NULL)
     self->app.activities->update_activity(self->app.activities, activity,
                                           &self->app, UpdateActivityCallback);
+
+  pthread_mutex_unlock(&lock);
 }
 
 struct DiscordActivity create_activity(const char *title, const char *artist,
                                        unsigned long *duration, bool playing,
-                                       guint *playing_time) {
+                                       guint *playing_time, gchar *art_url,
+                                       const char *album) {
   struct DiscordActivity activity;
   struct DiscordActivityAssets assets;
 
@@ -228,30 +224,79 @@ struct DiscordActivity create_activity(const char *title, const char *artist,
   sprintf(activity.name, "Rhythmbox");
   sprintf(activity.details, title);
   sprintf(activity.state, "by %s", artist);
-  sprintf(assets.large_image, "logo");
-  sprintf(assets.large_text, "Rhythmbox");
+  sprintf(assets.large_image, (art_url != NULL ? art_url : "logo"));
+  sprintf(assets.large_text, (album != NULL ? album : "Rhythmbox"));
 
   activity.assets = assets;
 
   return activity;
 }
+
+RBDiscordSongEntry get_song_entry_data(RhythmDBEntry *entry) {
+  RBDiscordSongEntry data;
+
+  data.title = rhythmdb_entry_get_string(entry, RHYTHMDB_PROP_TITLE);
+  data.artist = rhythmdb_entry_get_string(entry, RHYTHMDB_PROP_ARTIST);
+  data.album = rhythmdb_entry_get_string(entry, RHYTHMDB_PROP_ALBUM);
+  data.duration = rhythmdb_entry_get_ulong(entry, RHYTHMDB_PROP_DURATION);
+
+  return data;
+}
+
+ArtWorkerCallback art_worker_cb(ArtworkerCallbackParams *params) {
+  RBDiscordPlugin *self = params->self;
+  const char *art_url = params->file_url;
+  RhythmDBEntry *entry = params->entry;
+
+  RBDiscordSongEntry data = get_song_entry_data(entry);
+
+  struct DiscordActivity activity = create_activity(
+      data.title, data.artist, &data.duration, true, NULL, art_url, data.album);
+
+  update_activity(self, &activity);
+
+  rhythmdb_entry_unref(entry);
+}
+
+static void art_cb(RBExtDBKey *key, RBExtDBKey *store_key, const char *filename,
+                   GValue *data, RBDiscordPlugin *self) {
+  RhythmDBEntry *entry = self->playing_entry;
+
+  if (entry == NULL)
+    return;
+
+  if (rhythmdb_entry_matches_ext_db_key(self->db, entry, store_key)) {
+    self->art_path = g_strdup(filename);
+    rb_debug("got art filename: %s", self->art_path);
+    upload_art(self, self->art_path, entry, art_worker_cb);
+  }
+}
+
+void get_art(RBDiscordPlugin *self, RhythmDBEntry *entry) {
+  RBExtDBKey *key =
+      rhythmdb_entry_create_ext_db_key(entry, RHYTHMDB_PROP_ALBUM);
+  rb_ext_db_request(self->art_store, key, (RBExtDBRequestCallback)art_cb,
+                    g_object_ref(self), g_object_unref);
+  rb_ext_db_key_free(key);
+}
+
 static void playing_entry_changed_cb(RBShellPlayer *player,
                                      RhythmDBEntry *entry,
                                      RBDiscordPlugin *self) {
   cleanup_playing_entry(self);
+  if (entry == NULL)
+    return;
 
   self->playing_entry = rhythmdb_entry_ref(entry);
-  const char *title =
-      rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_TITLE);
-  const char *artist =
-      rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_ARTIST);
-  unsigned long duration =
-      rhythmdb_entry_get_ulong(self->playing_entry, RHYTHMDB_PROP_DURATION);
 
-  struct DiscordActivity activity =
-      create_activity(title, artist, &duration, true, NULL);
+  RBDiscordSongEntry data = get_song_entry_data(entry);
+
+  struct DiscordActivity activity = create_activity(
+      data.title, data.artist, &data.duration, true, NULL, NULL, data.album);
 
   update_activity(self, &activity);
+
+  get_art(self, self->playing_entry);
 }
 
 static void playing_changed_cb(RBShellPlayer *player, gboolean playing,
@@ -262,17 +307,15 @@ static void playing_changed_cb(RBShellPlayer *player, gboolean playing,
 
     rb_shell_player_get_playing_time(player, time, &error);
 
-    const char *title =
-        rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_TITLE);
-    const char *artist =
-        rhythmdb_entry_get_string(self->playing_entry, RHYTHMDB_PROP_ARTIST);
-    unsigned long duration =
-        rhythmdb_entry_get_ulong(self->playing_entry, RHYTHMDB_PROP_DURATION);
+    RBDiscordSongEntry data = get_song_entry_data(self->playing_entry);
 
     struct DiscordActivity activity = create_activity(
-        title, artist, (playing ? &duration : NULL), playing, time);
+        data.title, data.artist, (playing ? &data.duration : NULL), playing,
+        time, NULL, data.album);
 
     update_activity(self, &activity);
+
+    get_art(self, self->playing_entry);
   }
 }
 

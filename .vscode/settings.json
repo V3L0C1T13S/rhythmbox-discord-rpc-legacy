@@ -1,0 +1,27 @@
+{
+    "C_Cpp.default.compileCommands": "/home/john/Documents/projects/cpp/rhythmbox-discord-rpc/builddir/compile_commands.json",
+    "files.associations": {
+        "*.json": "jsonc",
+        "*.nelua": "nelua",
+        ".prettierrc": "jsonc",
+        "*.asm": "asm-intel-x86-generic",
+        "chrono": "c",
+        "functional": "c",
+        "rb-plugin-macros.h": "c",
+        "rb-debug.h": "c",
+        "expected": "c",
+        "unistd.h": "c",
+        "string.h": "c",
+        "config.h": "c",
+        "rb-ext-db.h": "c",
+        "gi18n-lib.h": "c",
+        "stdio.h": "c",
+        "rb-discord.h": "c",
+        "stdlib.h": "c",
+        "rb-discord-status.h": "c",
+        "rb-shell-player.h": "c",
+        "gtk.h": "c",
+        "gmodule.h": "c"
+    },
+    "cmake.configureOnOpen": false
+}
